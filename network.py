@@ -20,31 +20,23 @@ def get_device():
 
 class ResNet18Fashion(nn.Module):
     """
-    Kiến trúc ResNet18 được tinh chỉnh cho Fashion-MNIST (28x28).
-    Sử dụng GroupNorm thay vì BatchNorm để xử lý tốt hơn dữ liệu Non-IID.
+    Kiến trúc ResNet18 được tinh chỉnh cho Fashion-MNIST.
     """
     def __init__(self):
         super(ResNet18Fashion, self).__init__()
         
-        # GroupNorm giúp mô hình hội tụ tốt hơn khi dữ liệu giữa các máy khách không đồng nhất
         def group_norm(channels):
             return nn.GroupNorm(num_groups=32, num_channels=channels)
             
-        # Khởi tạo ResNet18 không sử dụng trọng số pre-trained
         self.model = models.resnet18(weights=None, norm_layer=group_norm)
         
-        # [ĐIỀU CHỈNH ĐỂ NÂNG ACC]: 
-        # Sử dụng kernel_size=3 thay vì 7 (mặc định) hoặc 1 để giữ chi tiết cho ảnh 28x28.
         self.model.conv1 = nn.Conv2d(1, 64, kernel_size=3, stride=1, padding=1, bias=False)
         
-        # Loại bỏ lớp MaxPool để tránh làm giảm kích thước ảnh quá nhanh
         self.model.maxpool = nn.Identity()
         
-        # Chỉnh sửa lớp đầu ra cuối cùng (Fully Connected) cho 10 loại quần áo
         num_ftrs = self.model.fc.in_features
         self.model.fc = nn.Linear(num_ftrs, 10)
         
-        # Khởi tạo trọng số Kaiming (He Initialization) tối ưu cho ReLU
         self._initialize_weights()
 
     def _initialize_weights(self):

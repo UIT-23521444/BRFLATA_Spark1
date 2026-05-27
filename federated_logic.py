@@ -18,7 +18,6 @@ def decrypt_partner_data(encrypted_pkg, private_key):
     """
     if encrypted_pkg is None:
         return None
-
     try:
         # 1. Giải mã lấy lại khóa AES bằng khóa riêng RSA của mình
         aes_key = private_key.decrypt(
@@ -29,7 +28,6 @@ def decrypt_partner_data(encrypted_pkg, private_key):
                 label=None
             )
         )
-
         # 2. Giải mã dữ liệu m_t bằng khóa AES
         cipher = Cipher(algorithms.AES(aes_key), modes.CBC(encrypted_pkg['iv']), backend=default_backend())
         decryptor = cipher.decryptor()
@@ -44,10 +42,6 @@ def decrypt_partner_data(encrypted_pkg, private_key):
         return None
 
 def sign_parameters(data_dict, private_key):
-    """
-    [Bài báo - Equation 12 & 13]: S = H(w)^d mod n
-    Ký số RSA cho các tham số để đảm bảo tính toàn vẹn (Integrity).
-    """
     sorted_keys = sorted(data_dict.keys())
     data_bytes = b"".join([data_dict[k].numpy().tobytes() for k in sorted_keys])
     
@@ -111,7 +105,6 @@ def local_train_process(partition_iterator, global_weights_br, partner_pkg, sk_b
     # --- BƯỚC 2: HUẤN LUYỆN XÁC THỰC (Tripartite Authentication) ---
     # Giải mã dữ liệu đối tác bằng Module 3
     partner_raw_data = decrypt_partner_data(partner_pkg, my_private_key)
-    
     w_hat_t_c = {}
     if partner_raw_data:
         model_auth = ResNet18Fashion().to(device)
@@ -121,19 +114,16 @@ def local_train_process(partition_iterator, global_weights_br, partner_pkg, sk_b
         p_labels = torch.tensor([d[1] for d in partner_raw_data])
         auth_loader = DataLoader(TensorDataset(p_imgs, p_labels), batch_size=32)
         
-        # ĐỒNG BỘ OPTIMIZER: Phải có momentum và nesterov giống hệt huấn luyện cục bộ
         optimizer_auth = optim.SGD(model_auth.parameters(), lr=current_lr, momentum=0.9, weight_decay=5e-4, nesterov=True)
         model_auth.train()
         
-        # ĐỒNG BỘ SỐ BƯỚC (STEP ALIGNMENT): Ép w_hat đi chính xác số bước của w
         auth_iter = iter(auth_loader)
         for _ in range(local_steps):
             try:
                 batch_x, batch_y = next(auth_iter)
             except StopIteration:
-                # Khi hết dữ liệu trong auth_loader, tự động vòng lại từ đầu
                 auth_iter = iter(auth_loader)
-                batch_x, batch_y = next(auth_iter)
+                batch_x, batch_y = next(auth_iter)0000
                 
             batch_x, batch_y = batch_x.to(device), batch_y.to(device)
             optimizer_auth.zero_grad()

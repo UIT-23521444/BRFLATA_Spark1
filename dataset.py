@@ -18,11 +18,7 @@ def get_tripartite_subset(local_data, subset_size=32):
     return random.sample(local_data, subset_size)
 
 def encrypt_tripartite_data(data_subset, partner_rsa_pub_key):
-    """
-    [Bài báo - Equation 7 & 8]: Mã hóa lai (Hybrid Encryption) cho dữ liệu xác thực.
-    - Sử dụng AES đối xứng để mã hóa dữ liệu (m_t^c)[cite: 206].
-    - Sử dụng RSA bất đối xứng của đối tác để mã hóa khóa AES (m_tilde_t^c)[cite: 215].
-    """
+
     aes_key = os.urandom(32)
     iv = os.urandom(16)
     
@@ -50,11 +46,10 @@ def encrypt_tripartite_data(data_subset, partner_rsa_pub_key):
     }
     
 def get_fashion_mnist(data_path='./data'):
-    transform = transforms.Compose([
+"""    transform = transforms.Compose([
         transforms.ToTensor(),
-        transforms.Normalize((0.5,), (0.5,)) # Đưa pixel về khoảng [-1, 1]
-    ])
-    # Fashion-MNIST gồm 60,000 ảnh training và 10,000 ảnh testing [cite: 335]
+        transforms.Normalize((0.5,), (0.5,)) 
+    ])"""
     train_transform = transforms.Compose([
         transforms.RandomCrop(28, padding=4),
         transforms.RandomHorizontalFlip(),
