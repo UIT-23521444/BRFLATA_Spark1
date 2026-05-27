@@ -18,8 +18,7 @@ def get_adaptive_pairing(credibility_table, round_t, num_clients, p_history, lam
     sorted_ids = [item[0] for item in sorted_items]
     
     # Kiểm tra vòng phục hồi (Rehabilitation round - Equation 6)
-    is_rehab = (round_t % lambda_val == 0) and (round_t > 0)
-
+    is_rehab = ((round_t - 1) % lambda_val == 0) and (round_t > 1)
     # 2. Tìm Offset (Độ lệch) tối ưu để tránh lặp lại lịch sử P (Equation 3 & 4)
     # Bài báo yêu cầu tránh ghép cặp đã tồn tại trong P (thường lưu C/3 vòng gần nhất)
     best_offset = 1
@@ -65,19 +64,15 @@ def calculate_euclidean_distance(w1, w2):
         v2 = torch.cat([p.detach().cpu().flatten() for p in w2.values()])
         return torch.dist(v1, v2, p=2).item()
 
-def update_aimd(r_prev, dist, d_th, is_link_secure=True):
+def update_aimd(r_prev, dist, d_th, is_link_secure=True, is_rehab=False):
     """
     [Bài báo - Equation 19, 20, 21]: r_t = theta_1 * theta_2.
     Cơ chế Additive Increase / Multiplicative Decrease (AIMD)[cite: 52].
     """
-    # 1. Tính toán theta_1 dựa trên kết quả xác thực tham số [cite: 309]
-    if dist < 1e-4:
-        # Phát hiện Attack 3 (Constant Attack): Khoảng cách quá nhỏ [cite: 355]
-        theta_1 = r_prev * 0.01 
-    elif dist < d_th:
+    if dist <= d_th:
         # Thưởng: Tăng cộng 0.1 [cite: 310, 317]
         theta_1 = r_prev + 0.1 
-    else:
+    else :
         # Phạt: Giảm nhân 0.01 [cite: 310, 317]
         theta_1 = r_prev * 0.01 
 
@@ -86,24 +81,35 @@ def update_aimd(r_prev, dist, d_th, is_link_secure=True):
     theta_2 = 1.0 if is_link_secure else 0.01
     
     # Equation 21: Kết hợp kết quả 
-    r_new = theta_1 * theta_2
-    return max(0.0, min(1.0, r_new))
+    r_new = max(0.0, min(1.0, theta_1 * theta_2))
+
+    # 2. LOGIC PHỤC HỒI (Ghi đè điểm nếu thỏa mãn tiêu chuẩn)
+    # Chỉ xét cứu trợ khi: Đang là vòng phục hồi (is_rehab = True) VÀ Client đang bị khóa điểm (r_prev <= 0.01)
+    if is_rehab and r_prev <= 0.01:
+        
+        # Ngưỡng dung sai 150%: Cứu Honest Client bị Data Skew hoặc Attack 1 nhẹ
+        if dist <= (d_th * 1.5):
+            penalty_overlap = max(0.0, dist - d_th)
+            recovery_bonus = 0.03 / (1.0 + penalty_overlap)
+            
+            # Cấp mức điểm 0.02 (để lọt qua bộ lọc cứng 0.01 của main.py) + điểm thưởng
+            r_new = min(0.1, 0.02 + recovery_bonus)
+            
+        # Nếu dist > d_th * 1.5 (Attack 2, Attack 3): Không làm gì cả, 
+        # r_new vẫn giữ nguyên kết quả bị phạt nặng (r_new <= 0.01) từ Bước 1.
+
+    return r_new
 
 # ====================================================================
 # MODULE 3: RELIABLE COMMUNICATION (Uplink & Downlink)
 # ====================================================================
 
 def verify_rsa_signature(public_key_bytes, weights, signature):
-    """
-    [Bài báo - Equation 14 & 15]: Xác thực chữ ký RSA tại Server[cite: 250, 251].
-    """
     try:
         public_key = serialization.load_pem_public_key(public_key_bytes)
         
-        # [QUAN TRỌNG]: Sắp xếp keys giống hệt như lúc ký ở Client
         sorted_keys = sorted(weights.keys())
         
-        # Sử dụng .contiguous() để đảm bảo an toàn bộ nhớ khi dữ liệu đi qua Spark
         param_bytes = b"".join([weights[k].cpu().contiguous().numpy().tobytes() for k in sorted_keys])
         
         public_key.verify(
@@ -127,22 +133,3 @@ def verify_zkp_proof(proof_package):
         return False
     # r = 1: Chấp nhận khóa; r = 0: Truyền lại [cite: 278]
     return proof_package.get("zkp_status", False)
-
-# ====================================================================
-# THIẾT LẬP THAM SỐ THỰC NGHIỆM
-# ====================================================================
-
-def estimate_similarity_threshold(sc, client_updates_list):
-    """
-    [Bài báo - Section 3.2.1]: Quy trình ước tính ngưỡng d_th.
-    Tính giá trị cực đại của khoảng cách giữa các lần cập nhật epoch[cite: 345].
-    """
-    distances = []
-    num = len(client_updates_list)
-    for i in range(num):
-        for j in range(i + 1, num):
-            d = calculate_euclidean_distance(client_updates_list[i], client_updates_list[j])
-            distances.append(d)
-    
-    # Ngưỡng d_th = ceil(max(distances)) [cite: 345]
-    return max(distances) if distances else 6.0

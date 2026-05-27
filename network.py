@@ -1,8 +1,8 @@
 import torch
 import torch.nn as nn
 from torchvision import models
-import hashlib
-from cryptography.hazmat.primitives.asymmetric import rsa, padding as asym_padding
+from cryptography.hazmat.primitives.asymmetric import rsa
+from cryptography.hazmat.primitives.asymmetric import padding as asym_padding
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.backends import default_backend
 
@@ -13,17 +13,6 @@ from cryptography.hazmat.backends import default_backend
 def get_device():
     """Tự động xác định thiết bị tính toán sẵn có (CUDA hoặc CPU)."""
     return torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-def hash_model_weights(weights_dict):
-    """
-    [Bài báo - Section: Reliable communication link]
-    Thực hiện hàm băm H() trên tham số mô hình để phục vụ xác thực chữ ký.
-    """
-    hasher = hashlib.sha256()
-    # Sắp xếp các key để đảm bảo thứ tự hash luôn nhất quán giữa Client và Server
-    for key in sorted(weights_dict.keys()):
-        hasher.update(weights_dict[key].numpy().tobytes())
-    return hasher.hexdigest()
 
 # ====================================================================
 # KIẾN TRÚC MÔ HÌNH (Module 2: Local Training)
@@ -98,26 +87,6 @@ class TripartiteKeyManager:
             encoding=serialization.Encoding.PEM,
             format=serialization.PublicFormat.SubjectPublicKeyInfo
         )
-
-    def sign_parameters(self, model_state_dict):
-        """
-        [Bài báo - Equation 12 & 13]: Ký số tham số mô hình (Uplink).
-        Tạo chữ ký số S_t^c để đảm bảo tính toàn vẹn của tham số.
-        """
-        # Sắp xếp các key để chuỗi bytes luôn duy nhất
-        sorted_keys = sorted(model_state_dict.keys())
-        param_bytes = b"".join([model_state_dict[k].numpy().tobytes() for k in sorted_keys])
-        
-        # Ký số RSA bằng khóa riêng (sk^c) sử dụng cơ chế PSS Padding
-        signature = self.private_key.sign(
-            param_bytes,
-            asym_padding.PSS(
-                mgf=asym_padding.MGF1(hashes.SHA256()),
-                salt_length=asym_padding.PSS.MAX_LENGTH
-            ),
-            hashes.SHA256()
-        )
-        return signature
 
     def verify_downlink_zkp(self, proof_package):
         """

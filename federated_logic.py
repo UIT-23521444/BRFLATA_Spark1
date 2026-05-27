@@ -11,10 +11,6 @@ from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.primitives import padding as sym_padding
 from cryptography.hazmat.backends import default_backend
 
-# ====================================================================
-# MODULE 3: RELIABLE COMMUNICATION - DECRYPTION (Khắc phục hàm bỏ hoang)
-# ====================================================================
-
 def decrypt_partner_data(encrypted_pkg, private_key):
     """
     [Bài báo - Module 3: Equation 9 & 10]
@@ -64,10 +60,6 @@ def sign_parameters(data_dict, private_key):
         hashes.SHA256()
     )
 
-# ====================================================================
-# MODULE 2: LOCAL TRAINING & TRIPARTITE AUTHENTICATION
-# ====================================================================
-
 def local_train_process(partition_iterator, global_weights_br, partner_pkg, sk_bytes, attack_type=0, current_lr=0.01):
     """
     [Bài báo - Algorithm 1]: Luồng thực thi toàn diện của BRFLATA tại mỗi Client.
@@ -76,10 +68,8 @@ def local_train_process(partition_iterator, global_weights_br, partner_pkg, sk_b
     device = get_device()
     criterion = nn.CrossEntropyLoss()
     
-    # --- KHẮC PHỤC LỖI PICKLE: Khôi phục RSA Private Key tại Worker ---
     my_private_key = serialization.load_pem_private_key(sk_bytes, password=None)
     
-    # --- BƯỚC 1: HUẤN LUYỆN CỤC BỘ (Local Training) ---
     model = ResNet18Fashion().to(device)
     model.load_state_dict(global_weights_br.value)
     
@@ -95,7 +85,6 @@ def local_train_process(partition_iterator, global_weights_br, partner_pkg, sk_b
     
     model.train()
     
-    # BỘ ĐẾM BƯỚC VÀ ĐỒNG BỘ EPOCH THEO BÀI BÁO
     local_steps = 0  
     num_epochs = 3   
     
@@ -107,7 +96,6 @@ def local_train_process(partition_iterator, global_weights_br, partner_pkg, sk_b
             optimizer.step()
             local_steps += 1 # Ghi nhận số bước cập nhật gradient của w
 
-    # Áp dụng tấn công Byzantine (nếu có)
     if attack_type > 0:
         with torch.no_grad():
             for param in model.parameters():

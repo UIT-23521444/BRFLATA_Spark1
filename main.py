@@ -68,7 +68,9 @@ def main():
     spark = (SparkSession.builder
         .appName("BRFLATA_ResNet18_Full_Implementation")
         .master("local[2]") 
-        .config("spark.driver.memory", "10g")
+        .config("spark.driver.memory", "8g")
+        .config("spark.executor.memory", "8g")
+        .config("spark.driver.maxResultSize", "4g")
         .config("spark.ui.showConsoleProgress", "false")
         .getOrCreate())
     
@@ -76,8 +78,8 @@ def main():
     sc.setLogLevel("ERROR")
     # Thiết lập thông số thực nghiệm (Table 1)
     num_rounds, num_clients = 60, 10
-    BYZANTINE_RATIO = 0.2    
-    CURRENT_ATTACK_TYPE = 3 
+    BYZANTINE_RATIO = 0.6    
+    CURRENT_ATTACK_TYPE = 2 
     base_lr = 0.01
     # d_th = 6.0 # (nếu dùng)
     num_attackers = int(num_clients * BYZANTINE_RATIO)
@@ -149,12 +151,7 @@ def main():
         forwarded_br = sc.broadcast(current_encrypted_packages)
         
         current_lr = base_lr
-        #if r < 15:
-          #  current_lr = 0.01  # Giữ LR ổn định ở 15 vòng đầu để vượt ngưỡng 30% Acc
-        #elif r < 40:
-          #  current_lr = 0.005 # Giảm nhẹ để mô hình hội tụ sâu hơn
-       # else:
-            #current_lr = 0.001 # Tinh chỉnh cuối cùng
+
         gw_br = sc.broadcast(global_model.cpu().state_dict())
         
         def run_round(index, it):
@@ -174,7 +171,15 @@ def main():
             continue
 
         # --- MODULE 4: SERVER AGGREGATION & AIMD UPDATE ---
-        total_r, new_weights_sum = 0, {}
+        
+        round_t = r + 1  # Số vòng thực tế (1 đến 60)
+        lambda_val = 10
+        
+        # Công thức chuẩn xác của Thành để kích hoạt vòng phục hồi
+        is_rehab_round = ((round_t - 1) % lambda_val == 0) and (round_t > 1)
+        
+        if is_rehab_round:
+            print(f"")
         for i in range(num_clients):
             partner_id = pairing[i]
             
@@ -185,7 +190,7 @@ def main():
             )
             
             dist = calculate_euclidean_distance(results_map[partner_id]["w"], results_map[i]["w_hat"])
-            credibility_table[partner_id] = update_aimd(credibility_table[partner_id], dist, d_th, is_valid_sig)
+            credibility_table[partner_id] = update_aimd(credibility_table[partner_id], dist, d_th, is_valid_sig,is_rehab=is_rehab_round)
 
         total_r, new_weights_sum = 0, {}
         for i in range(num_clients):
@@ -204,18 +209,7 @@ def main():
 
         agg_state = {k: v / (total_r + 1e-9) for k, v in new_weights_sum.items()}
         global_model.load_state_dict(agg_state)
-        # Tổng hợp mô hình toàn cục theo đúng Equation 22 của bài báo
-        agg_state = {k: v / (total_r + 1e-9) for k, v in new_weights_sum.items()}
-        
-        # Đã XÓA đoạn code dùng biến alpha để Server hấp thụ 100% kiến thức
-        global_model.load_state_dict(agg_state)
-        # Tổng hợp mô hình toàn cục
-       # agg_state = {k: v / (total_r + 1e-9) for k, v in new_weights_sum.items()}
-       # if r > 0:
-       #     curr_s = {k: v.cpu() for k, v in global_model.state_dict().items()}
-       #     agg_state = {k: alpha * curr_s[k] + (1 - alpha) * agg_state[k] for k in agg_state.keys()}
-        
-       # global_model.load_state_dict(agg_state)
+
         acc = evaluate_model(global_model, test_set)
         if acc > best_acc:
             best_acc = acc
@@ -228,6 +222,16 @@ def main():
             status = "(Attacker)" if score <= 0.001 else " (Honest)"
             print(f" - Client {client_id}: {score:.4f} {status}")
         print("-" * 50)
+        with open('client_credibility_history2.csv', 'a', newline='') as f:
+            writer = csv.writer(f)
+            # Nếu là vòng đầu tiên, ghi header
+            if r == 0:
+                header = ['Round'] + [f'Client_{i}' for i in range(num_clients)]
+                writer.writerow(header)
+            
+            # Ghi điểm r_c của vòng hiện tại
+            row = [r + 1] + [credibility_table[i] for i in range(num_clients)]
+            writer.writerow(row)
         history.append([r+1, acc, credibility_table[0]])
 
         gw_br.unpersist(); forwarded_br.unpersist()
